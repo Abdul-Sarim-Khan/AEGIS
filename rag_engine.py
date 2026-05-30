@@ -1,8 +1,8 @@
 """
 rag_engine.py
 =============
-Optimized Phase 2 of the LLM-powered SAST tool (AEGIS).
-Replaced LangChain text splitter with a pure-Python parser to completely fix MemoryError.
+ClusterScan AI Backend - Retrieval-Augmented Generation (RAG) Engine.
+Uses serialized binary array caching and low-overhead pure-Python slicing.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from typing import List
 
 # --------------------------------------------------------------------------- #
-# Configuration
+# Engine Configuration Paths
 # --------------------------------------------------------------------------- #
 KNOWLEDGE_BASE_DIR = os.path.join(os.path.dirname(__file__), "knowledge_base")
 CACHE_DIR = os.path.join(os.path.dirname(__file__), ".cache")
@@ -46,21 +46,17 @@ class RagEngine:
     build_seconds: float = 0.0
 
     def load_knowledge_base(self, kb_dir: str = KNOWLEDGE_BASE_DIR) -> List[Chunk]:
-        """
-        Pure-Python sliding window splitter that mimics LangChain's chunking logic.
-        Eliminates the dependency on heavy libraries during file parsing.
-        """
+        """Pure-Python character-based sliding window layout parser."""
         chunks: List[Chunk] = []
         md_paths = sorted(glob.glob(os.path.join(kb_dir, "*.md")))
         if not md_paths:
-            raise FileNotFoundError(f"No .md files found in {kb_dir!r}")
+            raise FileNotFoundError(f"No .md reference modules found in {kb_dir!r}")
 
         for path in md_paths:
             with open(path, "r", encoding="utf-8") as fh:
                 content = fh.read()
             source = os.path.basename(path)
             
-            # Basic character-based sliding window layout
             start = 0
             while start < len(content):
                 end = start + CHUNK_SIZE
@@ -73,6 +69,7 @@ class RagEngine:
         return chunks
 
     def _get_model(self):
+        """Lazy-loads the embedding transformer to prevent cold-boot lag."""
         if self._model is None:
             from sentence_transformers import SentenceTransformer
             self._model = SentenceTransformer(self.model_name)
@@ -102,9 +99,9 @@ class RagEngine:
         return np.asarray(embeddings, dtype="float32")
 
     def build(self, parallel: bool = False, force_rebuild: bool = False) -> "RagEngine":
+        """Loads index from pre-compiled cache disk binary or computes a new database."""
         start = time.perf_counter()
         
-        # Check cache instantly without looking up any models
         if not force_rebuild and os.path.exists(INDEX_PATH) and os.path.exists(CHUNKS_PATH):
             try:
                 import faiss
@@ -137,7 +134,7 @@ class RagEngine:
 
     def search(self, query: str, top_k: int = DEFAULT_TOP_K) -> List[RetrievalResult]:
         if self._index is None:
-            raise RuntimeError("Index not built. Call build() first.")
+            raise RuntimeError("Index not initialized. Execute build() execution sequence.")
 
         import numpy as np
         model = self._get_model()
