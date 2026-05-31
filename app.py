@@ -6,10 +6,10 @@ Fully wired with Gemini API and PNDC Map-Reduce Architecture.
 """
 
 import os
-# 1. Kill the transformers warning spam that freezes the Windows terminal
+# Kill the transformers warning spam that freezes the Windows terminal
 os.environ["TRANSFORMERS_VERBOSITY"] = "error"
 os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
-# 2. Fix the HF Hub unauthenticated warning and load instantly
+# Fix the HF Hub unauthenticated warning and load instantly
 os.environ["HF_HUB_OFFLINE"] = "1" 
 
 import streamlit as st
@@ -21,20 +21,13 @@ from rag_engine import RagEngine
 from ui_components import apply_cyber_theme, render_header, render_pndc_performance_dashboard
 
 st.set_page_config(page_title="AEGIS", page_icon="🛡️", layout="wide")
-
-# Apply custom UI components
 apply_cyber_theme()
 
-# Initialize session state for live PNDC metrics
 if "scan_metrics" not in st.session_state:
     st.session_state.scan_metrics = None
 
-# --------------------------------------------------------------------------- #
-# Build the ephemeral vector DB once and cache it for the session.
-# --------------------------------------------------------------------------- #
 @st.cache_resource(show_spinner="Building in-memory knowledge base (FAISS)...")
 def get_engine() -> RagEngine:
-    # parallel=False fixes the Windows multiprocessing crash during embedding
     return RagEngine().build(parallel=False)
 
 engine = get_engine()
@@ -58,12 +51,18 @@ with st.sidebar:
 # --------------------------------------------------------------------------- #
 def analyze_chunk(chunk_id: int, code_chunk: str, engine: RagEngine, top_k: int, client: genai.Client) -> str:
     """MAP PHASE: Retrieves specific rules for a code chunk and asks LLM to analyze it."""
+    
+    # Micro-delay to stagger thread requests and avoid instant 429 Rate Limits
+    time.sleep(chunk_id * 1.5) 
+    
     results = engine.search(code_chunk, top_k=top_k)
     rules_context = "\n\n".join(r.chunk.text for r in results)
     
+    # Prompt is instructed to be highly concise to save tokens for the Reduce phase
     prompt = f"""
     You are an expert Secure Code Reviewer. Review the following code chunk.
-    Only report critical security vulnerabilities. If none exist, state "No vulnerabilities found."
+    Only report critical security vulnerabilities. Be extremely concise. Use bullet points.
+    If none exist, state "No vulnerabilities found."
     
     OWASP Guidelines to follow:
     {rules_context}
@@ -72,7 +71,6 @@ def analyze_chunk(chunk_id: int, code_chunk: str, engine: RagEngine, top_k: int,
     {code_chunk}
     """
     
-    # Robust Retry Logic for Free-Tier API Limits
     max_retries = 3
     for attempt in range(max_retries):
         try:
@@ -83,7 +81,7 @@ def analyze_chunk(chunk_id: int, code_chunk: str, engine: RagEngine, top_k: int,
             return f"### Analysis of Code Chunk {chunk_id}\n" + response.text
         except Exception as e:
             if attempt < max_retries - 1:
-                time.sleep(2) # Wait 2 seconds and try again if Google servers are busy
+                time.sleep(10) # 10 second backoff if we hit a rate limit
                 continue
             return f"Error analyzing chunk {chunk_id} after {max_retries} attempts: {e}"
 
@@ -120,20 +118,20 @@ with tab_scan:
 
         # --- PNDC Pipeline Start ---
         code_lines = code.splitlines()
-        chunk_size_lines = 500
+        # MASSIVE CHUNKS: Reduces total API requests. A 1500 line file becomes just 2 requests.
+        chunk_size_lines = 800 
         code_chunks = ["\n".join(code_lines[i:i + chunk_size_lines]) for i in range(0, len(code_lines), chunk_size_lines)]
         
         total_code_lines = len(code_lines)
-        num_workers = 3
+        num_workers = min(len(code_chunks), 3) # Max 3 workers to respect free tier
         
-        st.info(f"⚡ PNDC Architecture: Code split into {len(code_chunks)} chunks for parallel map-reduce processing.")
+        st.info(f"⚡ PNDC Architecture: Code split into {len(code_chunks)} massive chunks for map-reduce processing.")
         
         chunk_reports = []
         
-        # 2. MAP: Process chunks concurrently
+        # 2. MAP PHASE
         start_map_time = time.time()
         with st.spinner("Map Phase: Analyzing code chunks concurrently..."):
-            # Max 5 workers to prevent Google API 503 errors
             with concurrent.futures.ThreadPoolExecutor(max_workers=num_workers) as executor:
                 futures = {
                     executor.submit(analyze_chunk, i+1, c, engine, top_k, client): i 
@@ -144,13 +142,21 @@ with tab_scan:
         end_map_time = time.time()
         map_wall_time = end_map_time - start_map_time
 
-        # 3. REDUCE: Merge findings into a final report
+        # --- EXPLICIT RATE LIMIT COOLDOWN FOR FREE TIER ---
+        st.warning("⏱️ API Rate Limit Protection: Initiating 20-second cooldown before Reduce Phase synthesis...")
+        cooldown_bar = st.progress(0)
+        for i in range(100):
+            time.sleep(0.2) # Total 20 seconds
+            cooldown_bar.progress(i + 1)
+        cooldown_bar.empty()
+
+        # 3. REDUCE PHASE
         start_reduce_time = time.time()
         with st.spinner("Reduce Phase: Synthesizing final vulnerability report..."):
             merge_prompt = f"""
             You are a Lead Security Auditor. Merge the following chunked analysis reports into one cohesive, professional vulnerability report.
             Remove duplicates, organize by vulnerability type (e.g., A03: Injection), and provide actionable mitigations.
-            Keep the synthesis concise.
+            Keep the synthesis concise and professional.
             
             Raw Chunk Reports:
             {"\n\n---\n\n".join(chunk_reports)}
@@ -168,22 +174,19 @@ with tab_scan:
                     break
                 except Exception as e:
                     if attempt < max_retries - 1:
-                        time.sleep(5) # Increased wait time to 5 seconds to let the API cool down
+                        time.sleep(15) # Heavy 15-second backoff for synthesis failure
                     else:
-                        # PNDC FAULT TOLERANCE: If synthesis fails, gracefully degrade to raw merged reports
-                        st.warning("⚠️ Google API Reduce Synthesis overloaded. Falling back to un-synthesized raw Map reports.")
+                        st.error("⚠️ Google API Reduce Synthesis overloaded. Falling back to un-synthesized raw Map reports.")
                         final_report = "## ⚠️ Raw Analysis Reports (Synthesis Skipped)\n\n" 
-                        final_report += "The API could not synthesize this massive amount of vulnerabilities. Below are the raw concurrent Map results:\n\n"
+                        final_report += "The API could not synthesize this massive amount of vulnerabilities due to Free Tier limits. Below are the raw concurrent Map results:\n\n"
                         final_report += "\n\n---\n\n".join(chunk_reports)
 
         end_reduce_time = time.time()
         reduce_wall_time = end_reduce_time - start_reduce_time
         
-        # Calculate real-time Map average for Amdahl's Law projection
         waves = math.ceil(len(code_chunks) / num_workers) if num_workers > 0 else 1
         avg_map_time_per_chunk = map_wall_time / waves if waves > 0 else 0
 
-        # Save empirical data to session state
         st.session_state.scan_metrics = {
             "lines": total_code_lines,
             "chunk_size": chunk_size_lines,
