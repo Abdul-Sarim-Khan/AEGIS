@@ -1,49 +1,40 @@
-# 🛡️ LLM-Powered SAST Auditor
+# 🛡️ AEGIS: Distributed LLM-Powered SAST Auditor
 
 An automated, serverless **Static Application Security Testing** tool that uses
 a **Retrieval-Augmented Generation (RAG)** pipeline and a Large Language Model
 to find vulnerabilities in source code, grounded in the **OWASP Top 10**.
 
-This project is structured to satisfy two courses:
+This project was architected by Abdul Sarim Khan to satisfy the advanced requirements for two courses:
 
 | Course | What it demonstrates |
 |---|---|
-| **Cloud Computing & Virtualization** | Decoupled cloud-native stack: GitHub as source of truth, PaaS hosting (Streamlit Community Cloud) with auto-built containers, an **ephemeral in-RAM vector DB** (FAISS) that exists only while the container is warm, and inference offloaded to a serverless third-party API. |
-| **Parallel & Distributed Computing** | A **parallel map-reduce analysis layer**: code is split into chunks analysed by *concurrent* workers (map), whose findings are merged (reduce). Supported by FAISS's multi-threaded (OpenMP) similarity search and parallel batch embedding. |
-
-> **Honest note on the PNDC angle:** a single FAISS index in one container is
-> *local* in-memory search, not a distributed system. The parallelism that
-> actually carries the PNDC requirement is the **concurrent map-reduce
-> analysis** and parallel embedding — benchmark sequential vs parallel and put
-> the speedup chart in your results section.
+| **Cloud Computing & Virtualization** | Decoupled cloud-native stack: GitOps continuous deployment, PaaS hosting (Streamlit Community Cloud), ephemeral containers, environment variable orchestration (`HF_TOKEN` / `HF_HUB_OFFLINE`), and inference offloaded to a serverless API. |
+| **Parallel & Distributed Computing** | A **dynamic map-reduce analysis layer**: Code is mathematically partitioned (N/2) by a Dynamic Load Balancer to spread work across concurrent threads while respecting strict cloud API rate limits. Includes a live dashboard proving Amdahl's Law, Empirical Speedup, and Core Efficiency. |
 
 ## Project structure
 
-```
-sast-rag/
-├── app.py                 # Streamlit UI (Phase 1) + retrieval display (Phase 2)
+```text
+AEGIS - CCP/
+├── app.py                 # Core application, Streamlit UI, and Map-Reduce coordinator
 ├── rag_engine.py          # RAG engine: load → chunk → embed → FAISS → search
-├── requirements.txt
+├── ui_components.py       # Custom Cyberpunk UI styling and PNDC Math Dashboard
+├── requirements.txt       # Dependencies (google-genai, faiss-cpu, pandas, etc.)
 ├── README.md
 ├── .gitignore
-├── .streamlit/
-│   └── secrets.toml.example
 ├── knowledge_base/        # OWASP Top 10 rules (Markdown, with code indicators)
 │   ├── a01_broken_access_control.md
-│   ├── ... (a02 … a10)
+│   └── ... (a02 … a10)
 └── sample_code/
-    └── vulnerable_login.py  # deliberately insecure file for testing
+    ├── vulnerable_login.py          # Basic insecure file for testing
+    └── massive_vulnerable_app.py    # 5,000+ line generator for heavy load testing
 ```
 
-## How it works
+## Architecture & Pipeline
 
-1. **Ingestion** — on startup, every `.md` rule file is loaded, split into
-   overlapping chunks (LangChain `RecursiveCharacterTextSplitter`), embedded
-   with `all-MiniLM-L6-v2`, and added to a FAISS `IndexFlatIP` (cosine).
-2. **Retrieval** — uploaded code is embedded and used to query FAISS for the
-   most relevant rule chunks.
-3. **Augmentation + Generation (Phase 3)** — code + retrieved rules + a system
-   prompt are sent to Gemini, which returns a formatted security report.
+1. **Ingestion (Vector DB)** — On startup, every `.md` OWASP rule file is loaded, split into overlapping chunks (LangChain `RecursiveCharacterTextSplitter`), embedded using `all-MiniLM-L6-v2`, and cached in a FAISS `IndexFlatIP` ephemeral vector database.
+2. **Dynamic Task Decomposition** — Uploaded source code is passed into a dynamic load balancer that calculates the optimal chunk size to distribute the workload evenly while ensuring the total number of chunks never exceeds the Gemini Free-Tier API burst limits.
+3. **Map Phase (Concurrency)** — Worker threads retrieve the most relevant OWASP rules for their specific code chunk via the RAG engine, then concurrently query the LLM to identify localized vulnerabilities.
+4. **Reduce Phase (Fault-Tolerant Synthesis)** — The system catches the concurrent outputs and synthesizes them into a single, deduplicated markdown report. Features exponential backoff and a raw-fallback degradation if the reducer node is overloaded.
 
 ## Run locally
 
@@ -52,32 +43,24 @@ pip install -r requirements.txt
 streamlit run app.py
 ```
 
-Or test the engine without the UI:
+*Tip: To suppress Hugging Face terminal warnings during local runs, `app.py` automatically injects `HF_HUB_OFFLINE=1` and `TRANSFORMERS_VERBOSITY=error` at runtime.*
 
-```bash
-python rag_engine.py        # prints index stats + a sample retrieval
-```
+## Deploy (GitOps)
 
-## Deploy (Phase 4)
+1. Push this folder to a **public GitHub repository**.
+2. On **Streamlit Community Cloud**, create a new app pointing to `app.py`.
+3. In **Advanced Settings > Secrets**, configure the following environment variables:
+   ```toml
+   GEMINI_API_KEY = "your_google_ai_studio_key"
+   HF_TOKEN = "your_huggingface_read_token"
+   ```
+4. Deploy. The cloud container will automatically download the `all-MiniLM` model on its first cold start using the provided Hugging Face token.
 
-1. Push this folder to a **public GitHub repo**.
-2. On **Streamlit Community Cloud**, create an app pointing at `app.py`.
-3. In **Secrets**, add `GEMINI_API_KEY = "..."` (needed once Phase 3 is wired).
-   Never commit the real key — `.streamlit/secrets.toml` is git-ignored.
+## Status & Milestones
 
-## Known limitations (for the report)
-
-- **Context-window limits** — single scripts, not huge multi-file repos. *(The
-  parallel map-reduce layer is the mitigation: it lets you exceed a single
-  window by analysing chunks concurrently.)*
-- **Hallucination risk** — RAG grounds the model but cannot fully eliminate
-  incorrect mitigations; human review is required.
-- **Cold-start latency** — the ephemeral container spins down when idle, so the
-  first request after inactivity rebuilds the FAISS index in RAM (~1–2 min).
-
-## Status
-
-- ✅ Phase 1 — environment, knowledge base, Streamlit UI
-- ✅ Phase 2 — RAG engine (load, chunk, embed, FAISS, retrieval verified)
-- ⬜ Phase 3 — Gemini integration + parallel map-reduce report generation
-- ⬜ Phase 4 — deployment to Streamlit Community Cloud
+- ✅ **Phase 1** — Environment setup, OWASP knowledge base parsing, Streamlit UI.
+- ✅ **Phase 2** — RAG engine (LangChain splitters, Sentence-Transformers embedding, FAISS retrieval).
+- ✅ **Phase 3** — New `google-genai` SDK integration, multithreaded Map-Reduce pipeline, fault tolerance.
+- ✅ **Phase 4** — Dynamic Load Balancing to bypass Free-Tier API Rate Limiting (HTTP 429).
+- ✅ **Phase 5** — Interactive PNDC Mathematics Dashboard (Amdahl's Law, Empirical Speedup).
+- ✅ **Phase 6** — GitOps Continuous Deployment to Streamlit Community Cloud.
