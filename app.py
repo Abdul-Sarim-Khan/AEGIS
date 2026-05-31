@@ -10,7 +10,7 @@ import os
 os.environ["TRANSFORMERS_VERBOSITY"] = "error"
 os.environ["TRANSFORMERS_NO_ADVISORY_WARNINGS"] = "1"
 # Fix the HF Hub unauthenticated warning and load instantly
-os.environ["HF_HUB_OFFLINE"] = "1" 
+
 
 import streamlit as st
 import concurrent.futures
