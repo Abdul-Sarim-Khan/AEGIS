@@ -277,17 +277,7 @@ def render_header():
     .aegis-title span {
         color: #00ff99;
     }
-    .aegis-badge {
-        font-family: 'Share Tech Mono', monospace;
-        font-size: 0.7rem;
-        color: #00ff99;
-        border: 1px solid #00ff99;
-        border-radius: 4px;
-        padding: 2px 8px;
-        letter-spacing: 0.1em;
-        background: rgba(0, 255, 153, 0.05);
-        margin-left: 8px;
-    }
+
     .aegis-sub {
         font-family: 'Share Tech Mono', monospace;
         font-size: 0.75rem;
@@ -306,8 +296,7 @@ def render_header():
     <div class="aegis-header">
         <div class="aegis-title-row">
             <div class="aegis-pulse-ring"></div>
-            <h1 class="aegis-title"><span>AEG</span>IS</h1>
-            <span class="aegis-badge">v3.0</span>
+            <h1 class="aegis-title"><span>AEGIS-CODE</span></h1>
         </div>
         <p class="aegis-sub">Adaptive · Engine · Guard · Intelligence · Scanner <span class="blink">_</span></p>
     </div>
@@ -387,7 +376,7 @@ def render_pndc_performance_dashboard(scan_metrics=None):
     </style>
     """, unsafe_allow_html=True)
 
-    st.markdown('<p class="dash-section-head">PDC Mathematical Validation — AEGIS Map-Reduce Pipeline</p>', unsafe_allow_html=True)
+    st.markdown('<p class="dash-section-head">Mathematical Validation — AEGIS Map-Reduce Pipeline</p>', unsafe_allow_html=True)
 
     mode = st.radio(
         "Dashboard Mode",

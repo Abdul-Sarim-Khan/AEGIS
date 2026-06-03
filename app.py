@@ -13,7 +13,7 @@ from ui_components import (
     render_pndc_performance_dashboard,
 )
 
-st.set_page_config(page_title="AEGIS", page_icon="🛡️", layout="wide")
+st.set_page_config(page_title="AEGIS-CODE", page_icon="🛡️", layout="wide")
 apply_cyber_theme()
 
 if "scan_metrics" not in st.session_state:
@@ -35,9 +35,9 @@ with st.sidebar:
     <div style="text-align:center;padding:1rem 0 0.6rem 0;
         border-bottom:1px solid #0f2540;margin-bottom:1rem;">
         <div style="font-family:'Share Tech Mono',monospace;font-size:1.8rem;
-            color:#00ff99;letter-spacing:0.2em;line-height:1;">🛡️ AEGIS</div>
+            color:#00ff99;letter-spacing:0.1em;line-height:1;">🛡️ AEGIS-CODE</div>
         <div style="font-family:'Share Tech Mono',monospace;font-size:0.6rem;
-            color:#2a5a8a;letter-spacing:0.18em;margin-top:3px;">DISTRIBUTED SAST ENGINE</div>
+            color:#2a5a8a;letter-spacing:0.18em;margin-top:3px;">RAG-BASED CODE VULNERABILITY ANALYZER</div>
     </div>
     """, unsafe_allow_html=True)
 
@@ -123,7 +123,7 @@ with tab_scan:
     st.markdown("""
     <p style="font-family:'Exo 2',sans-serif;color:#4a6a8a;font-size:0.9rem;
         margin-bottom:1.2rem;border-left:2px solid #0f2540;padding-left:10px;">
-        Upload source code or paste a snippet. AEGIS decomposes it into chunks and runs
+        Upload source code or paste a snippet. AEGIS-CODE decomposes it into chunks and runs
         a concurrent Map-Reduce analysis pipeline against the OWASP Top 10 knowledge base.
     </p>
     """, unsafe_allow_html=True)
@@ -213,16 +213,6 @@ with tab_scan:
 
         map_progress.empty()
         map_wall = time.time() - start_map
-
-        # ── Cooldown ──────────────────────────────────────────────────────────
-        st.info("⏱️  API quota cooldown — 20 s before synthesis phase…")
-        cooldown = st.progress(0)
-        for i in range(100):
-            time.sleep(0.2)
-            cooldown.progress(i + 1)
-        cooldown.empty()
-
-        render_scan_status_badge("Reduce phase — synthesizing report…", "active")
 
         # ── REDUCE Phase ──────────────────────────────────────────────────────
         reports_combined = "\n\n---\n\n".join(chunk_reports)
